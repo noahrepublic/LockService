@@ -88,7 +88,7 @@ if RunService:IsServer() then
         for _, v in pairs(keys) do
             table.insert(cKeys, v[1]);
         end
-        LockService.LastNewKey[player.UserId] = Workspace:GetServerTimeNow();
+        LockService.LastNewKey[player.UserId] = workspace:GetServerTimeNow();
         script:FindFirstChild("KeysConnector"):FireClient(player, cKeys);
     end
 
@@ -158,7 +158,7 @@ if RunService:IsServer() then
         if checkKey(player, key) then
             callbackFunction(player, params);
         else
-            if workspace:GetServerTimeNow() - LockService.LastNewKey[player.UserId] < 5 then
+            if workspace:GetServerTimeNow() - LockService.LastNewKey[player.UserId] < 0.5 then
                 callbackFunction(player, params);
             else
                 player:Kick("Invalid key");
