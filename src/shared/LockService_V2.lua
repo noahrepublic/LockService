@@ -9,6 +9,7 @@
 local Players = game:GetService("Players");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
 local RunService = game:GetService("RunService");
+local Workspace = game:GetService("Workspace")
 local HttpService = game:GetService("HttpService");
 
 -- Variables --
@@ -29,6 +30,7 @@ if RunService:IsServer() then
     LockService.StrictModeThreshold = 30;
 
     LockService.PlayerConnectedTime = {};
+    LockService.LastNewKey = {};
 
     if not script:FindFirstChild("KeysConnector") then
         local connectorRemote = Instance.new("RemoteEvent");
@@ -83,12 +85,12 @@ if RunService:IsServer() then
 
     local function assignKeys(player, keys)
         LockService.Keys[player.UserId] = keys;
-        print(keys[1])
+        
         local cKeys = {};
         for _, v in pairs(keys) do
             table.insert(cKeys, v[1]);
         end
-        print("Firing keys to connector")
+        LockService.LastNewKey[player.UserId] = Workspace:GetServerTimeNow();
         script:FindFirstChild("KeysConnector"):FireClient(player, cKeys);
     end
 
@@ -122,6 +124,8 @@ if RunService:IsServer() then
     local function onDisconnect(player)
         LockService.Keys[player.UserId] = {};
         LockService.Salt[player.UserId] = {};
+        LockService.PlayerConnectedTime[player.UserId] = nil;
+        LockService.LastNewKey[player.UserId] = nil;
     end
 
     -- key checking --
@@ -129,15 +133,11 @@ if RunService:IsServer() then
     local function checkKey(player, key)
         -- hashed keys are sent
         for i, v in pairs(LockService.Keys[player.UserId]) do
-            print(i, v, key)
             if v[2] == key then
                 table.remove(LockService.Keys[player.UserId], i);
                 return i;
             end
         end
-        -- check if key is in the valid keys
-        -- if so remove, and return true
-        -- else kick and return false
         return false
     end
 
@@ -158,10 +158,13 @@ if RunService:IsServer() then
             end
         end
         if checkKey(player, key) then
-            -- remove from the valid keys
-            print("Key removed " .. #LockService.Keys[player.UserId]);
+            callbackFunction(player, params);
         else
-            player:Kick("Invalid key");
+            if Workspace:GetServerTimeNow() - LockService.LastNewKey[player.UserId] < 5 then
+                callbackFunction(player, params);
+            else
+                player:Kick("Invalid key");
+            end
         end
     end
 
@@ -189,13 +192,11 @@ elseif RunService:IsClient() then
     -- Private Client Functions --
 
     local function getSalt()
-        print("GetSalt fired.")
         local saltConnector = script:WaitForChild(Players.LocalPlayer.UserId, 60);
         if saltConnector then
             local conn = saltConnector.OnClientEvent:Connect(function(s)
                 salt = s;
                 saltConnector:FireServer();
-                print("fired server")
             end)
             conn:Disconnect();
         else
@@ -208,7 +209,6 @@ elseif RunService:IsClient() then
         task.wait();
         print("Waiting for salt...");
     until salt ~= nil;
-    print(salt)
 
     local function deHash(key, salt)
         local k1 = salt[1];
@@ -243,10 +243,8 @@ elseif RunService:IsClient() then
     function LockService:FireLock(event, params, key)
         local deHashedKey = deHash(key, salt);
         event:FireServer(deHashedKey, params);
-        print("FIRE")
         if key == nil then return end
         removeKey(key);
-        print(#currentKeys)
     end
     
     -- Connections --
