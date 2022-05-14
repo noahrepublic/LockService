@@ -23,53 +23,429 @@
       </Properties>
       <Item class="ModuleScript" referent="3">
         <Properties>
-          <string name="Name">Hello</string>
-          <string name="Source">return function()
-	print("Hello, world!")
-end</string>
+          <string name="Name">LockService</string>
+          <string name="Source"><![CDATA[
+--[[ TODO:
+5. Send a table of valid keys to the client, Ex: 100 keys, only 25% of them are valid.
+6. The client will determine whether the key is valid or not by comparing the last 4 digits of the key with the index.
+7. Once the client finds a valid key, with set instructions it will send to the server for whatever it needs, it will also encrypt the all parameters it is sending.
+8. The server will decrypt the parameters and check if the key is valid.
+9. After the client notices it needs more keys, it will request the server for some more. The server will set a certain index for each sets of keys, if the server ever gets
+a repeated key or repeated index it will kick the user.
+]]
+
+-- Services --
+
+local Players = game:GetService("Players");
+local ReplicatedStorage = game:GetService("ReplicatedStorage");
+local RunService = game:GetService("RunService");
+local HttpService = game:GetService("HttpService");
+
+-- Variables --
+
+local LockService = {};
+LockService.__index = LockService;
+
+if RunService:IsServer() then
+    LockService.Keys = {
+        -- ["player_indentifier"] = {
+        --     key,
+        --}
+    };
+    LockService.UsedKeys = {}; -- Same format as Keys
+    LockService.Locks = {};
+    LockService.Salt = {};
+    
+    -- Private Functions --
+    
+    local function generateKeys(player, amount)
+        local keys = {};
+        local hashedKeys = {};
+        for i = 1, amount do
+            local key = HttpService:GenerateGUID(false);
+            local key = string.gsub(key, "-", "");
+            local hashedKey = {};
+			for i = #key, 1, -1 do
+				local character = string.sub(key, #key - i + 1, #key - i + 1); -- if #key is 10, and i = 7, then it is 4
+                if #key - i + 1 > #key then
+                    character = string.sub(key, #key, #key);
+                end
+				if tonumber(character) then
+                    hashedKey[i] = character;
+                    
+					local g = (LockService.Salt[player.UserId] * #key - i); -- pow math
+					print("G: " ..tostring(g) .. " Salt: " .. tostring(LockService.Salt[player.UserId]) .. "KEY-I: " .. #key -i)
+                    if #key - i == 0 then
+                        hashedKey[i] = character;
+                    else
+                        hashedKey[i] = character * g;
+                    end -- if #key is 10, and i = 7, then it is 3
+                    --local num = string.byte(character) * g;
+					
+
+				else
+					hashedKey[i] = character
+                end 
+            end
+            table.insert(keys, key);
+            table.insert(hashedKeys, hashedKey);
+        end
+        return hashedKeys, keys;
+    end
+    
+    local function findIndex(tbl, target)
+        for i = 1, #tbl do
+            if tbl[i] == target then
+                return i;
+            end
+        end
+        return false
+    end
+    
+    local function assignKeys(player, keys)
+        LockService.Keys[player.UserId] = keys;
+    end
+    
+    
+    local function initKeyConnector()
+        if not script:FindFirstChild("KeysConnector") then
+            local connectorRemote = Instance.new("RemoteEvent");
+            connectorRemote.Name = "KeysConnector";
+            connectorRemote.Parent = script;
+        end
+    end
+
+    local function keyConnector(player, keys)
+        local event = script:WaitForChild("KeysConnector");
+        event:FireClient(player, keys);
+        print("Sent over keys to " .. player.Name);
+    end
+
+    local function initSaltMaker()
+        if not script:FindFirstChild("Salt") then
+            local salt = Instance.new("RemoteEvent");
+            salt.Name = "Salt";
+            salt.Parent = script;
+        end
+    end
+
+    local function saltConnector(player, salt)
+        script["Salt"]:FireClient(player, salt);
+        print("Salt sent to " .. player.Name);
+    end
+    
+    local function onConnect(player)
+        if LockService.Keys[player.UserId] then
+            return;
+        end
+        initKeyConnector();
+        initSaltMaker();
+        LockService.Salt[player.UserId] = #Players:GetPlayers() + 1;
+        saltConnector(player, LockService.Salt[player.UserId]);
+        local hashedKeys, keys = generateKeys(player, 10);
+        LockService.UsedKeys[player.UserId] = {};
+        assignKeys(player, keys);
+        keyConnector(player, hashedKeys);
+    end
+    
+    local function OnDisconnect(player)
+        local index = findIndex(LockService.Keys, player.UserId);
+        if index then
+            table.remove(LockService.Keys, index);
+        end
+    end
+    
+    local function getKeys(player)
+        return LockService.Keys[player.UserId];
+    end
+    
+    local function ValidateKey(player, input_key)
+        local keys = getKeys(player);
+        for i = 1, #keys do
+            if keys[i] == input_key then
+                return true;
+            end
+        end
+        return false;
+    end
+    
+    
+    -- Class Functions --
+    
+    
+    LockService.LockEvent = function(event, callbackFunction)
+        event.OnServerEvent:Connect(function(player, key, params)
+            -- Validate key --
+            if (ValidateKey(player,key)) then
+                -- Callback --
+                local index = findIndex(LockService.Keys[player.UserId], key);
+                if index then
+                    table.remove(LockService.Keys[player.UserId], index);
+                    print("Removed, " .. #getKeys(player) .. " keys left");
+                end
+                table.insert(LockService.UsedKeys[player.UserId], key);
+                if (#getKeys(player) <= 1) then
+                    local hashedKeys, keys = generateKeys(10);
+                    assignKeys(player, keys);
+                    keyConnector(player, hashedKeys);
+                end
+                callbackFunction(player, params);
+            end
+        end);
+    end;
+    
+    -- Connections --
+    Players.PlayerAdded:Connect(onConnect);
+    Players.PlayerRemoving:Connect(OnDisconnect);
+else
+    -- Client functions --
+    -- Variables --
+    
+    local event = script:WaitForChild("KeysConnector");
+    local saltConnector = script:WaitForChild("Salt");
+
+    local currentKeys = {};
+    local salt = 0;
+    -- Private Functions --
+
+    
+
+    local function onSalt(Csalt)
+		salt = Csalt;
+		print(salt)
+        script:FindFirstChild("Salt"):Destroy();
+    end
+
+    -- Class Functions --
+
+    LockService.DeHash = function(key)
+		local decrypt = "";
+		repeat
+			task.wait()
+			print("Waiting on salt...")
+		until salt ~= 0
+        repeat
+            task.wait()
+            print("Waiting on keys...")
+        until currentKeys ~= {}
+        for i = #key, 1, -1 do
+            local character = key[i];
+            if tonumber(character) then
+                print(character)
+				local g = (salt / #key - i); -- 10, i = 7, g = 3 -- math.pow
+				print("G: " ..tostring(g) .. " Salt: " .. tostring(salt) .. " KEY-I: " .. #key -i)
+                g = character / g;
+                print(g)
+                if #key - 1 == 0 then
+                    decrypt = decrypt .. tostring(character);
+                else
+                    decrypt = decrypt .. tostring(g);
+                end
+            elseif character ~= nil then
+                decrypt = decrypt .. character;
+            end
+        end
+        return decrypt;
+    end
+
+    LockService.KeyRemote = function(event, params)
+        repeat
+            task.wait()
+            print("Waiting on keys...")
+        until #currentKeys > 0
+        local key = LockService.DeHash(currentKeys[1]);
+        event:FireServer(key,params); -- TODO ADD ALGORITHM FOR ENCRYPTION FOR A WORKING KEY
+        table.remove(currentKeys, 1);
+    end
+
+    local function onKeys(keys)
+        currentKeys = keys;
+        LockService.DeHash(currentKeys[1]);
+    end
+    -- Connections --
+
+    saltConnector.OnClientEvent:Connect(onSalt);
+    event.OnClientEvent:Connect(onKeys);
+end
+
+
+return LockService;]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="4">
+        <Properties>
+          <string name="Name">LockService_V2</string>
+          <string name="Source"><![CDATA[-- Services --
+
+local Players = game:GetService("Players");
+local ReplicatedStorage = game:GetService("ReplicatedStorage");
+local RunService = game:GetService("RunService");
+local HttpService = game:GetService("HttpService");
+
+-- Variables --
+
+local LockService = {};
+LockService.__index = LockService;
+
+if RunService:IsServer() then
+    LockService.Keys = {
+        -- ["player_indentifier"] = {
+        --     key,
+        --}
+    };
+    LockService.Locks = {};
+    LockService.Salt = {};
+
+    -- Private Functions --
+
+    local function genKeys(player, amount)
+        --[[
+            layout of keys:
+            {
+                [1] = {"hashedKey", "deHashedKey"}
+            }
+        ]]
+        local keys = {};
+        -- layers
+        local k1 = LockService.Salt[player.UserId][1];
+        local k2 = LockService.Salt[player.UserId][2];
+        local k3 = LockService.Salt[player.UserId][3]; 
+        
+        local key = {};
+        local usedKeys = {}; -- makes sure there is 0 collisions with the keys
+        local rndKey = math.random(100, 10000);
+    end
+
+    local function onConnect(player)
+        local time = os.time();
+        LockService.Salt[player.UserId] = {#Players:GetPlayers() + math.random(0, 10000), #Players:GetPlayers() - game.PlaceVersion, time / (math.random(time/2, time))};
+        LockService.Keys[player.UserId] = {};
+    end
+
+    -- key checking --
+
+    local function checkKey(player, key)
+        -- dehash key
+
+        -- check if key is in the valid keys
+        -- if so remove, and return true
+        -- else kick and return false
+        return true
+    end
+
+    local function getKeyIndex(player, key)
+        local keys = LockService.Keys[player.UserId];
+        for i = 1, #keys do
+            if keys[i] == key then
+                return i;
+            end
+        end
+        return false;
+    end
+
+    local function lockedEvent(player, key, params)
+        local rawKey
+        if checkKey(player, key) then
+            -- remove from the valid keys
+            local keyIndex = getKeyIndex(player, key);
+        end
+    end
+
+    -- Class Functions --
+
+    function LockService:LockEvent(event, callbackFunction)
+        local lock = {};
+        lock.event = event;
+        lock.callbackFunction = callbackFunction;
+        table.insert(self.Locks, lock); -- TODO: ADD NAMING FOR EASIER SORTING
+        -- connect the event
+        event:Connect(lockedEvent);
+    end
+
+    -- Connections --
+
+    Players.PlayerAdded:Connect(onConnect);
+end
+
+return LockService;
+]]></string>
         </Properties>
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="4">
+  <Item class="ServerScriptService" referent="5">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Script" referent="5">
+    <Item class="Script" referent="6">
       <Properties>
         <string name="Name">Server</string>
-        <string name="Source">print("Hello world, from server!")</string>
+        <string name="Source"><![CDATA[
+-- Services --
+
+local Players = game:GetService("Players");
+local ReplicatedStorage = game:GetService("ReplicatedStorage");
+
+-- Variables --
+
+local LockService = require(ReplicatedStorage:FindFirstChild("Common"):FindFirstChild("LockService_V2"));
+
+local event = ReplicatedStorage:WaitForChild("RemoteEvent");
+
+local function doSomething(player, params)
+    print(player, params);
+end
+
+
+--LockService.LockEvent(event, doSomething);]]></string>
       </Properties>
     </Item>
   </Item>
-  <Item class="SoundService" referent="6">
+  <Item class="SoundService" referent="7">
     <Properties>
       <string name="Name">SoundService</string>
       <bool name="RespectFilteringEnabled">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterPlayer" referent="7">
+  <Item class="StarterPlayer" referent="8">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="8">
+    <Item class="StarterPlayerScripts" referent="9">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="LocalScript" referent="9">
+      <Item class="LocalScript" referent="10">
         <Properties>
           <string name="Name">Client</string>
-          <string name="Source">print("Hello world, from client!")</string>
+          <string name="Source"><![CDATA[
+-- Services --
+
+local Players = game:GetService("Players");
+local ReplicatedStorage = game:GetService("ReplicatedStorage");
+
+-- Variables --
+
+--[[local LockService = require(ReplicatedStorage:FindFirstChild("Common"):FindFirstChild("LockService"));
+local event = ReplicatedStorage:WaitForChild("RemoteEvent");
+
+ReplicatedStorage:WaitForChild("Common"):WaitForChild("LockService"):FindFirstChild("Salt");
+
+
+while task.wait(1) do
+    LockService.KeyRemote(event, "test");
+end
+]]]]></string>
         </Properties>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="10">
+  <Item class="Workspace" referent="11">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="FilteringEnabled">true</bool>
     </Properties>
-    <Item class="Part" referent="11">
+    <Item class="Part" referent="12">
       <Properties>
         <string name="Name">Baseplate</string>
         <bool name="Anchored">true</bool>
