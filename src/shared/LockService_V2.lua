@@ -9,8 +9,6 @@
 local Players = game:GetService("Players");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
 local RunService = game:GetService("RunService");
-local Workspace = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService");
 
 -- Variables --
 
@@ -160,7 +158,7 @@ if RunService:IsServer() then
         if checkKey(player, key) then
             callbackFunction(player, params);
         else
-            if Workspace:GetServerTimeNow() - LockService.LastNewKey[player.UserId] < 5 then
+            if workspace:GetServerTimeNow() - LockService.LastNewKey[player.UserId] < 5 then
                 callbackFunction(player, params);
             else
                 player:Kick("Invalid key");
@@ -185,6 +183,10 @@ if RunService:IsServer() then
 
     Players.PlayerAdded:Connect(onConnect);
     Players.PlayerRemoving:Connect(onDisconnect);
+
+    script:FindFirstChild("KeysConnector").OnServerEvent:Connect(function(player)
+        player:Kick("You are not allowed to do that.");
+    end)
 
 elseif RunService:IsClient() then
     local salt = nil;
