@@ -9,7 +9,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage");
 local LockService = require(ReplicatedStorage:FindFirstChild("Common"):FindFirstChild("LockService_V2"));
 local event = ReplicatedStorage:WaitForChild("RemoteEvent");
 
-while task.wait(10) do
-    local keys = LockService:GetKeys();
-    LockService:FireLock(event, "Hello World", keys[1]);
-end
+
+local keys = LockService:GetKeys();
+LockService:FireLock(event, "Hello World", keys[1]);
