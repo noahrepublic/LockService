@@ -83,10 +83,12 @@ if RunService:IsServer() then
 
     local function assignKeys(player, keys)
         LockService.Keys[player.UserId] = keys;
+        print(keys[1])
         local cKeys = {};
         for _, v in pairs(keys) do
-            table.remove(v, 2);
+            table.insert(cKeys, v[1]);
         end
+        print("Firing keys to connector")
         script:FindFirstChild("KeysConnector"):FireClient(player, cKeys);
     end
 
@@ -99,9 +101,10 @@ if RunService:IsServer() then
             local event = script:FindFirstChild(player.UserId);
             if event then
                 event:Destroy();
+            else
+                print("No event found");
             end
         end);
-        conn:Disconnect();
     end
 
     local function onConnect(player)
@@ -126,7 +129,9 @@ if RunService:IsServer() then
     local function checkKey(player, key)
         -- hashed keys are sent
         for i, v in pairs(LockService.Keys[player.UserId]) do
+            print(i, v, key)
             if v[2] == key then
+                table.remove(LockService.Keys[player.UserId], i);
                 return i;
             end
         end
@@ -152,11 +157,9 @@ if RunService:IsServer() then
                 player:Kick("You are not allowed to do that.");
             end
         end
-        local keyIndex = checkKey(player, key);
-        if keyIndex then
+        if checkKey(player, key) then
             -- remove from the valid keys
-            table.remove(LockService.Keys[player.UserId], keyIndex);
-            print("Key removed" .. #LockService.Keys[player.UserId]);
+            print("Key removed " .. #LockService.Keys[player.UserId]);
         else
             player:Kick("Invalid key");
         end
@@ -182,7 +185,7 @@ if RunService:IsServer() then
 
 elseif RunService:IsClient() then
     local salt = nil;
-    local currentKeys = {};
+    local currentKeys = nil;
     -- Private Client Functions --
 
     local function getSalt()
@@ -191,9 +194,10 @@ elseif RunService:IsClient() then
         if saltConnector then
             local conn = saltConnector.OnClientEvent:Connect(function(s)
                 salt = s;
+                saltConnector:FireServer();
+                print("fired server")
             end)
             conn:Disconnect();
-            saltConnector:FireServer();
         else
             Players.LocalPlayer:Kick("Could not get salt");
         end
@@ -223,7 +227,7 @@ elseif RunService:IsClient() then
 
     local function removeKey(key)
         for i, v in pairs(currentKeys) do
-            if v[2] == key then
+            if v == key then
                 table.remove(currentKeys, i);
                 return;
             end
@@ -232,6 +236,7 @@ elseif RunService:IsClient() then
     -- Class Functions --
 
     function LockService:GetKeys()
+        print("Requested keys: " .. #currentKeys)
         return currentKeys;
     end
 
