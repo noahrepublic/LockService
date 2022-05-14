@@ -25,6 +25,10 @@ if RunService:IsServer() then
     LockService.Locks = {};
     LockService.Salt = {};
     LockService.AmountPerPlayer = 10;
+    LockService.StrictMode = false;
+    LockService.StrictModeThreshold = 30;
+
+    LockService.PlayerConnectedTime = {};
 
     if not script:FindFirstChild("KeysConnector") then
         local connectorRemote = Instance.new("RemoteEvent");
@@ -79,7 +83,11 @@ if RunService:IsServer() then
 
     local function assignKeys(player, keys)
         LockService.Keys[player.UserId] = keys;
-        script:FindFirstChild("KeysConnector"):FireClient(player, LockService.Keys[player.UserId]);
+        local cKeys = {};
+        for _, v in pairs(keys) do
+            table.remove(v, 2);
+        end
+        script:FindFirstChild("KeysConnector"):FireClient(player, cKeys);
     end
 
     local function initSalt(player)
@@ -103,6 +111,9 @@ if RunService:IsServer() then
         LockService.Keys[player.UserId] = {};
         local keys = genKeys(player, LockService.AmountPerPlayer);
         assignKeys(player, keys);
+        if LockService.StrictMode == false then
+            LockService.PlayerConnectedTime[player.UserId] = game.Workspace:GetServerTimeNow();
+        end
     end
 
     local function onDisconnect(player)
@@ -127,13 +138,19 @@ if RunService:IsServer() then
 
     local function lockedEvent(player, key, params, callbackFunction)
         -- raw key is sent
-        if key == nil and #LockService[player.UserId] == 0 then
-            callbackFunction(params);
-            -- TODO: ASSIGN MORE KEYS
+        if key == nil and #LockService.Keys[player.UserId] == 0 then
+            callbackFunction(player, params);
             local newKeys = genKeys(player, LockService.AmountPerPlayer);
             assignKeys(player, newKeys);
-        elseif key == nil and #LockService[player.UserId] > 0 then
-            player:Kick("You are not allowed to do that.");
+        elseif key == nil and #LockService.Keys[player.UserId] > 0 then
+            if LockService.StrictMode == false then
+                local timeC = game.Workspace:GetServerTimeNow();
+                if timeC - LockService.PlayerConnectedTime[player.UserId] < LockService.StrictModeThreshold then
+                    callbackFunction(player, params);
+                end
+            else
+                player:Kick("You are not allowed to do that.");
+            end
         end
         local keyIndex = checkKey(player, key);
         if keyIndex then
@@ -169,19 +186,23 @@ elseif RunService:IsClient() then
     -- Private Client Functions --
 
     local function getSalt()
-        local saltConnector = script:FindFirstChild(Players.LocalPlayer.UserId);
+        print("GetSalt fired.")
+        local saltConnector = script:WaitForChild(Players.LocalPlayer.UserId, 60);
         if saltConnector then
             local conn = saltConnector.OnClientEvent:Connect(function(s)
                 salt = s;
             end)
             conn:Disconnect();
             saltConnector:FireServer();
+        else
+            Players.LocalPlayer:Kick("Could not get salt");
         end
     end
 
     pcall(getSalt);
     repeat
         task.wait();
+        print("Waiting for salt...");
     until salt ~= nil;
     print(salt)
 
@@ -189,6 +210,7 @@ elseif RunService:IsClient() then
         local k1 = salt[1];
         local k2 = salt[2];
         local k3 = salt[3];
+        if key == nil then return nil end
         key += k3;
         key -= k2
         key /= k1;
@@ -198,11 +220,28 @@ elseif RunService:IsClient() then
     local function keyConnector(keys)
         currentKeys = keys;
     end
+
+    local function removeKey(key)
+        for i, v in pairs(currentKeys) do
+            if v[2] == key then
+                table.remove(currentKeys, i);
+                return;
+            end
+        end
+    end
     -- Class Functions --
+
+    function LockService:GetKeys()
+        return currentKeys;
+    end
 
     function LockService:FireLock(event, params, key)
         local deHashedKey = deHash(key, salt);
         event:FireServer(deHashedKey, params);
+        print("FIRE")
+        if key == nil then return end
+        removeKey(key);
+        print(#currentKeys)
     end
     
     -- Connections --

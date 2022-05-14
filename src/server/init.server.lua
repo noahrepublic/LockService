@@ -15,4 +15,4 @@ local function doSomething(player, params)
 end
 
 
---LockService.LockEvent(event, doSomething);
+LockService:LockEvent(event, doSomething);
