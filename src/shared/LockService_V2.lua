@@ -1,5 +1,5 @@
 --[[ TODO:
-    - Remove the adding of k2 at the end. It's not needed.
+    - Remove the adding of k2 at the end of some keys. It's not needed.
 
 
 ]]
