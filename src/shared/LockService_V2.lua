@@ -94,14 +94,9 @@ if RunService:IsServer() then
 		saltConnector.Name = player.UserId;
 		saltConnector.Parent = script;
 		saltConnector:FireClient(player, LockService.Salt[player.UserId]);
-		local conn = saltConnector.OnServerEvent:Connect(function(player)
-			local event = script:FindFirstChild(player.UserId);
-			if event then
-				event:Destroy();
-                event = nil; -- garbage collection
-			else
-				print("No event found");
-			end
+		saltConnector.OnServerEvent:Connect(function(player)
+			if saltConnector == nil then player:Kick("LockService: SaltConnector is nil"); return end
+			saltConnector:Destroy();
 		end);
 	end
 
@@ -242,6 +237,7 @@ elseif RunService:IsClient() then
 				saltConnector:FireServer();
 			end)
 			conn:Disconnect();
+			saltConnector:Destroy();
 		else
 			Players.LocalPlayer:Kick("Could not get salt"); -- not needed to kick on the server, if they are legit then it will kick, if they are exploiting then they broke themselves as the salt table is read only and kicks on server.
 		end
