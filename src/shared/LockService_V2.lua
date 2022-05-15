@@ -21,17 +21,12 @@ local LockService = {};
 LockService.__index = LockService;
 
 if RunService:IsServer() then
-	local data = {
-		Keys = {},
-		Locks = {},
-		Salt = {},
-		AmountPerPlayer = 10,
-		StrictMode = false,
-		StrictModeThreshold = 30,
-		PlayerConnectedTime = {},
-		LastNewKey = {}
-	}
+	local data = {Keys = {},Locks = {},Salt = {},AmountPerPlayer = 10,StrictMode = false,StrictModeThreshold = 30,PlayerConnectedTime = {},LastNewKey = {}}
 	setmetatable(LockService, {__index = data})
+    setmetatable(LockService.Keys, {__mode = "k"})
+    setmetatable(LockService.Locks, {__mode = "k"})
+    setmetatable(LockService.Salt, {__mode = "k"})
+    setmetatable(LockService.PlayerConnectedTime, {__mode = "k"})
 
 	if not script:FindFirstChild("KeysConnector") then
 		local connectorRemote = Instance.new("RemoteEvent");
@@ -66,6 +61,7 @@ if RunService:IsServer() then
 		local usedKeys = {}; -- makes sure there is 0 collisions with the keys
 		for i = 1, amount do
 			local key = {};
+            setmetatable(key, {__mode = "k"})
 			local rndKey = math.random(100, 10000);
 			if getKeyIndex(usedKeys, rndKey) == false then
 				table.insert(usedKeys, rndKey);
@@ -75,6 +71,8 @@ if RunService:IsServer() then
 				hashedKey += k2
 				hashedKey -= k3
 				key[1] = hashedKey;
+                print("New key: " .. hashedKey);
+                --setmetatable(key, {__index = key, __newindex = key})
 				table.insert(keys, key);
 			else
 				-- very rare to happen
@@ -85,6 +83,7 @@ if RunService:IsServer() then
 	end
 
 	local function assignKeys(player, keys)
+        LockService.Keys[player.UserId] = nil;
 		LockService.Keys[player.UserId] = keys;
 
 		local cKeys = {};
@@ -123,10 +122,12 @@ if RunService:IsServer() then
 	end
 
 	local function onDisconnect(player)
-		LockService.Keys[player.UserId] = {};
-		LockService.Salt[player.UserId] = {};
+        print("Cleaning up...");
+		LockService.Keys[player.UserId] = nil;
+		LockService.Salt[player.UserId] = nil;
 		LockService.PlayerConnectedTime[player.UserId] = nil;
 		LockService.LastNewKey[player.UserId] = nil;
+        print("Cleaned up!");
 	end
 
     -- Lock handling --
@@ -231,20 +232,29 @@ if RunService:IsServer() then
 	end)
 
 elseif RunService:IsClient() then
-	local salt = nil;
-	local currentKeys = nil;
+    local var = {salt = nil,currentKeys = nil}
+    setmetatable(var, {__index = LockService})
 	-- Private Client Functions --
 
 	local function getSalt()
 		local saltConnector = script:WaitForChild(Players.LocalPlayer.UserId, 60);
 		if saltConnector then
 			local conn = saltConnector.OnClientEvent:Connect(function(s)
-				salt = s;
+				LockService.salt = s;
 				saltConnector:FireServer();
+                setmetatable(LockService.salt, {
+                    __index = function(_, k)
+                        return LockService.salt[k]
+                    end,
+                    __newindex = function(_, k, v)
+                        warn("This is a read-only table")
+                        script:FindFirstChild("KeysConnector"):FireServer()
+                    end
+                })
 			end)
 			conn:Disconnect();
 		else
-			Players.LocalPlayer:Kick("Could not get salt");
+			Players.LocalPlayer:Kick("Could not get salt"); -- not needed to kick on the server, if they are legit then it will kick, if they are exploiting then they broke themselves as the salt table is read only and kicks on server.
 		end
 	end
 
@@ -252,7 +262,7 @@ elseif RunService:IsClient() then
 	repeat
 		task.wait();
 		print("Waiting for salt...");
-	until salt ~= nil;
+	until LockService.salt ~= nil;
 
 	local function deHash(key, salt)
 		local k1 = salt[1];
@@ -266,13 +276,13 @@ elseif RunService:IsClient() then
 	end
 
 	local function keyConnector(keys)
-		currentKeys = keys;
+		LockService.currentKeys = keys;
 	end
 
 	local function removeKey(key)
-		for i, v in pairs(currentKeys) do
+		for i, v in pairs(LockService.currentKeys) do
 			if v == key then
-				table.remove(currentKeys, i);
+				table.remove(LockService.currentKeys, i);
 				return;
 			end
 		end
@@ -280,12 +290,12 @@ elseif RunService:IsClient() then
 	-- Class Functions --
 
 	function LockService:GetKeys()
-		print("Requested keys: " .. #currentKeys)
-		return currentKeys;
+		print("Requested keys: " .. #self.currentKeys)
+		return self.currentKeys;
 	end
 
 	function LockService:FireLock(event, params, key)
-		local deHashedKey = deHash(key, salt);
+		local deHashedKey = deHash(key, self.salt);
 		event:FireServer(deHashedKey, params);
 		if key == nil then return end
 		removeKey(key);

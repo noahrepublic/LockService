@@ -10,7 +10,7 @@ local LockService = require(ReplicatedStorage:FindFirstChild("Common"):FindFirst
 local event = ReplicatedStorage:WaitForChild("RemoteEvent");
 
 
-while task.wait(10) do
+while task.wait(1) do
     local keys = LockService:GetKeys();
     LockService:FireLock(event, "Hello World", keys[1]);
 end
