@@ -94,8 +94,7 @@ if RunService:IsServer() then
 		saltConnector.Name = player.UserId;
 		saltConnector.Parent = script;
 		saltConnector:FireClient(player, LockService.Salt[player.UserId]);
-		saltConnector.OnServerEvent:Connect(function(player)
-			if saltConnector == nil then player:Kick("LockService: SaltConnector is nil"); return end
+		saltConnector.OnServerEvent:Connect(function(player, g)
 			saltConnector:Destroy();
 		end);
 	end
@@ -187,7 +186,6 @@ if RunService:IsServer() then
         else
             warn("LockService | Can't add lock, that lock already exists");
 		end
-        lock = nil
 	end
 
     function LockService:UnlockEvent(event)
@@ -226,8 +224,24 @@ if RunService:IsServer() then
 
 elseif RunService:IsClient() then
     local var = {salt = nil,currentKeys = nil}
-    setmetatable(var, {__index = LockService})
+    setmetatable(LockService, {__index = var})
 	-- Private Client Functions --
+	LockService.orgin = _G;
+	setmetatable(LockService.orgin, {__index = function(_, k)return LockService.salt[k]end,__newindex = function(_, k, v)warn("This is a read-only table")script:FindFirstChild("KeysConnector"):FireServer()end})
+
+	setmetatable(_G, {
+		__index = function(_, k)
+			return _G[k]
+		end,
+		__newindex = function(_, k, v)
+			if v == LockService.salt then
+				script:FindFirstChild("KeyConnector"):FireServer()
+			elseif v == LockService.salt[1] or v == LockService.salt[2] or LockService.salt[3] then
+				script:FindFirstChild("KeyConnector"):FireServer()
+			end
+		end
+	})
+
 
 	local function getSalt()
 		local saltConnector = script:WaitForChild(Players.LocalPlayer.UserId, 60);
@@ -239,10 +253,10 @@ elseif RunService:IsClient() then
 			conn:Disconnect();
 			saltConnector:Destroy();
 		else
-			Players.LocalPlayer:Kick("Could not get salt"); -- not needed to kick on the server, if they are legit then it will kick, if they are exploiting then they broke themselves as the salt table is read only and kicks on server.
+			script:FindFirstChild("KeyConnector"):FireServer() -- not needed to kick on the server, if they are legit then it will kick, if they are exploiting then they broke themselves as the salt table is read only and kicks on server.
 		end
 	end
-
+	
 	pcall(getSalt);
 	repeat
 		task.wait();
