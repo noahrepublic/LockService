@@ -1,8 +1,9 @@
 --[[
-    ISSUES:
+    Known issues: 
+    Priotity: Not necessarily needed, will make easier to implement.
     - If you unlock a locked event, the client continues to try to fire
     the event, even though the event is locked, and the client removes the keys
-    from their list.
+    from their list. (could be fixed by client handling the service correctly.)
 ]]
 -- Services --
 
@@ -66,7 +67,6 @@ if RunService:IsServer() then
                     hashedKey += k2
                     hashedKey -= k3
                     key[1] = hashedKey;
-                    print("New key: " .. hashedKey);
                     table.insert(keys, key);
                 else
                     -- very rare to happen
@@ -118,12 +118,10 @@ if RunService:IsServer() then
 	end
 
 	local function onDisconnect(player)
-        print("Cleaning up player: " .. player.UserId);
 		LockService.Keys[player.UserId] = nil;
 		LockService.Salt[player.UserId] = nil;
 		LockService.PlayerConnectedTime[player.UserId] = nil;
 		LockService.LastNewKey[player.UserId] = nil;
-        print("Cleaned up! " .. player.UserId);
 	end
 
     -- Lock handling --
@@ -185,14 +183,14 @@ if RunService:IsServer() then
 		lock.callbackFunction = callbackFunction;
         local isLocked = self:IsLocked(event);
         if isLocked == false then
-            print("Added lock: " .. lock.name);
+            print("LockService | Added lock: " .. lock.name);
             local conn = event.OnServerEvent:Connect(function(player, key, params)
                 lockedEvent(player, key, params, callbackFunction);
             end)
             lock.conn = conn
             AddLock(lock);
         else
-            warn("Can't add lock, that lock already exists");
+            warn("LockService | Can't add lock, that lock already exists");
 		end
         lock = nil
 	end
@@ -201,7 +199,7 @@ if RunService:IsServer() then
         for i = 1, #self.Locks do
             if self.Locks[i].conn == event.conn then
                 self.Locks[i].conn:Disconnect()
-                print("Unlocked event " .. event.Name)
+                print("LockService | Unlocked event " .. event.Name)
                 self.Locks[i] = nil
                 return true
             end
@@ -242,15 +240,6 @@ elseif RunService:IsClient() then
 			local conn = saltConnector.OnClientEvent:Connect(function(s)
 				LockService.salt = s;
 				saltConnector:FireServer();
-                setmetatable(LockService.salt, {
-                    __index = function(_, k)
-                        return LockService.salt[k]
-                    end,
-                    __newindex = function(_, k, v)
-                        warn("This is a read-only table") -- Literally never will get here. But just in case ;)
-                        script:FindFirstChild("KeysConnector"):FireServer()
-                    end
-                })
 			end)
 			conn:Disconnect();
 		else
@@ -261,8 +250,17 @@ elseif RunService:IsClient() then
 	pcall(getSalt);
 	repeat
 		task.wait();
-		print("Waiting for salt...");
 	until LockService.salt ~= nil;
+
+    setmetatable(LockService.salt, {
+        __index = function(_, k)
+            return LockService.salt[k]
+        end,
+        __newindex = function(_, k, v)
+            warn("This is a read-only table") -- Only a small chance of this happening, but it is possible.
+            script:FindFirstChild("KeysConnector"):FireServer()
+        end
+    })
 
 	local function deHash(key, salt)
 		local k1 = salt[1];
@@ -290,7 +288,6 @@ elseif RunService:IsClient() then
 	-- Class Functions --
 
 	function LockService:GetKeys()
-		print("Requested keys: " .. #self.currentKeys)
 		return self.currentKeys;
 	end
 
