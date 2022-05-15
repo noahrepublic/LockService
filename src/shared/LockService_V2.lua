@@ -1,14 +1,8 @@
 --[[
-    BIG ISSUES:
+    ISSUES:
     - If you unlock a locked event, the client continues to try to fire
     the event, even though the event is locked, and the client removes the keys
     from their list.
-]]
-
---[[
-    TODO:
-    - Add a way to get the lock status of a specific lock ✅
-    - Add a way to get the lock status of all locks ✅
 ]]
 -- Services --
 
@@ -58,27 +52,28 @@ if RunService:IsServer() then
 		local k2 = LockService.Salt[player.UserId][2];
 		local k3 = LockService.Salt[player.UserId][3]; 
 
-		local usedKeys = {}; -- makes sure there is 0 collisions with the keys
-		for i = 1, amount do
-			local key = {};
-            setmetatable(key, {__mode = "k"})
-			local rndKey = math.random(100, 10000);
-			if getKeyIndex(usedKeys, rndKey) == false then
-				table.insert(usedKeys, rndKey);
-				key[2] = rndKey;
-				-- hash it
-				local hashedKey = rndKey * k1
-				hashedKey += k2
-				hashedKey -= k3
-				key[1] = hashedKey;
-                print("New key: " .. hashedKey);
-                --setmetatable(key, {__index = key, __newindex = key})
-				table.insert(keys, key);
-			else
-				-- very rare to happen
-				continue
-			end 
-		end
+        do 
+            local usedKeys = {}; -- makes sure there is 0 collisions with the keys
+            for i = 1, amount do
+                local key = {};
+                setmetatable(key, {__mode = "k"})
+                local rndKey = math.random(100, 10000);
+                if getKeyIndex(usedKeys, rndKey) == false then
+                    table.insert(usedKeys, rndKey);
+                    key[2] = rndKey;
+                    -- hash it
+                    local hashedKey = rndKey * k1
+                    hashedKey += k2
+                    hashedKey -= k3
+                    key[1] = hashedKey;
+                    print("New key: " .. hashedKey);
+                    table.insert(keys, key);
+                else
+                    -- very rare to happen
+                    continue
+                end 
+            end
+        end
 		return keys;
 	end
 
@@ -103,6 +98,7 @@ if RunService:IsServer() then
 			local event = script:FindFirstChild(player.UserId);
 			if event then
 				event:Destroy();
+                event = nil; -- garbage collection
 			else
 				print("No event found");
 			end
@@ -122,24 +118,20 @@ if RunService:IsServer() then
 	end
 
 	local function onDisconnect(player)
-        print("Cleaning up...");
+        print("Cleaning up player: " .. player.UserId);
 		LockService.Keys[player.UserId] = nil;
 		LockService.Salt[player.UserId] = nil;
 		LockService.PlayerConnectedTime[player.UserId] = nil;
 		LockService.LastNewKey[player.UserId] = nil;
-        print("Cleaned up!");
+        print("Cleaned up! " .. player.UserId);
 	end
 
     -- Lock handling --
 
     local function AddLock(lock)
-        for i = 1,#LockService.Locks do
-    		if LockService.Locks[i] == lock then
-    			warn("Can't add lock, that lock already exists");
-    			return
-    		end
-    	end
-    	
+        if lock == nil then
+            return false;
+        end
     	table.insert(LockService.Locks,lock);
     end
 
@@ -150,7 +142,7 @@ if RunService:IsServer() then
 		-- hashed keys are sent
 		for i, v in pairs(LockService.Keys[player.UserId]) do
 			if v[2] == key then
-				table.remove(LockService.Keys[player.UserId], i);
+                LockService.Keys[player.UserId][i] = nil;
 				return i;
 			end
 		end
@@ -188,21 +180,29 @@ if RunService:IsServer() then
 
 	function LockService:LockEvent(event, callbackFunction)
 		local lock = {};
-		local conn = event.OnServerEvent:Connect(function(player, key, params)
-			lockedEvent(player, key, params, callbackFunction);
-		end);
-        lock.event = conn
-        lock.name = event.Name
+        setmetatable(lock, {__mode = "k"})
+        lock.name = event:GetFullName();
 		lock.callbackFunction = callbackFunction;
-        AddLock(lock);
+        local isLocked = self:IsLocked(event);
+        if isLocked == false then
+            print("Added lock: " .. lock.name);
+            local conn = event.OnServerEvent:Connect(function(player, key, params)
+                lockedEvent(player, key, params, callbackFunction);
+            end)
+            lock.conn = conn
+            AddLock(lock);
+        else
+            warn("Can't add lock, that lock already exists");
+		end
+        lock = nil
 	end
 
     function LockService:UnlockEvent(event)
         for i = 1, #self.Locks do
-            if self.Locks[i].name == event.Name then
-                self.Locks[i].event:Disconnect()
+            if self.Locks[i].conn == event.conn then
+                self.Locks[i].conn:Disconnect()
                 print("Unlocked event " .. event.Name)
-                table.remove(self.Locks, i)
+                self.Locks[i] = nil
                 return true
             end
         end
@@ -211,7 +211,7 @@ if RunService:IsServer() then
 
     function LockService:IsLocked(event)
         for i = 1, #self.Locks do
-            if self.Locks[i].name == event.Name then
+            if self.Locks[i].name == event:GetFullName() then
                 return true
             end
         end
@@ -247,7 +247,7 @@ elseif RunService:IsClient() then
                         return LockService.salt[k]
                     end,
                     __newindex = function(_, k, v)
-                        warn("This is a read-only table")
+                        warn("This is a read-only table") -- Literally never will get here. But just in case ;)
                         script:FindFirstChild("KeysConnector"):FireServer()
                     end
                 })
